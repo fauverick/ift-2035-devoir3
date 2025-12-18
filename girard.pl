@@ -80,14 +80,50 @@ env_type(TypeVarEnv, forall(A, B)) :-
 %   la capture des variables libres de `Replace`.
 
 % SUPPRIMER LA LIGNE SUIVANTE ET COMPLÉTER
-type_subst(X, _, _, X).
+
+% cas ou variables match
+type_subst(var(Search), Search, Replace, Replace) :- !. 
+% cas ou var sont diff
+type_subst(var(X), _, _, var(X)).
+
+%fleche 
+type_subst(arrow(A, B), Search, Replace, arrow(SubstA, SubstB)) :-
+    type_subst(A, Search, Replace, SubstA),
+    type_subst(B, Search, Replace, SubstB).
+
+type_subst(forall(Search, Body), Search, _, forall(Search, Body)) :- !.
+
+type_subst(forall(X, Body), Search, Replace, forall(NewX, NewBody)) :-
+    type_freevars(Replace, FreeVarsReplace),
+    member(X, FreeVarsReplace), !,
+    type_freevars(Body, FreeVarsBody),
+    ord_union(FreeVarsReplace, FreeVarsBody, AllFree),
+    name_fresh_vars(X, NewX, AllFree),
+    type_subst(Body, X, var(NewX), RenamedBody),
+    type_subst(RenamedBody, Search, Replace, NewBody).
+
+type_subst(forall(X, Body), Search, Replace, forall(X, SubstBody)) :-
+    type_subst(Body, Search, Replace, SubstBody).
 
 %%%
 % type_equiv(Type1, Type2):
 %   Les types `Type1` et `Type2` sont égaux à un ou plusieurs α-renommage près.
 
 % SUPPRIMER LA LIGNE SUIVANTE ET COMPLÉTER
-type_equiv(X, X).
+type_equiv(var(X), var(X)).
+
+type_equiv(arrow(A1, B1), arrow(A2, B2)) :-
+    type_equiv(A1, A2),
+    type_equiv(B1, B2).
+
+type_equiv(forall(X, Body1), forall(Y, Body2)) :-
+    type_freevars(Body1, Free1),
+    type_freevars(Body2, Free2),
+    ord_union(Free1, Free2, AllFree),
+    name_fresh_vars(X, Z, AllFree),
+    type_subst(Body1, X, var(Z), Body1Renamed),
+    type_subst(Body2, Y, var(Z), Body2Renamed),
+    type_equiv(Body1Renamed, Body2Renamed).
 
 %%%
 % env_expr_type(TypeVarEnv, TypeEnv, Expr, Type):
@@ -96,8 +132,28 @@ type_equiv(X, X).
 %   `TypeEnv` (un dictionnaire associant chaque variable d’expression à son type).
 
 % SUPPRIMER LA LIGNE SUIVANTE ET COMPLÉTER
-env_expr_type(_, _, _, var("X")).
 
+env_expr_type(_, TypeEnv, var(X), Type) :-
+    assoc_key_value(TypeEnv, X, Type).
+
+env_expr_type(TypeVarEnv, TypeEnv, lambda(X, TypeArg, Body), arrow(TypeArg, TypeRes)) :-
+    env_type(TypeVarEnv, TypeArg),         
+    env_expr_type(TypeVarEnv, [X-TypeArg|TypeEnv], Body, TypeRes).
+
+env_expr_type(TypeVarEnv, TypeEnv, apply(E1, E2), TypeRes) :-
+    env_expr_type(TypeVarEnv, TypeEnv, E1, TypeArrow),
+    env_expr_type(TypeVarEnv, TypeEnv, E2, TypeArg),
+    TypeArrow = arrow(TypeParam, TypeRes),
+    type_equiv(TypeParam, TypeArg).
+
+env_expr_type(TypeVarEnv, TypeEnv, poly(Alpha, Expr), forall(Alpha, TypeBody)) :-
+    env_expr_type([Alpha|TypeVarEnv], TypeEnv, Expr, TypeBody).
+
+env_expr_type(TypeVarEnv, TypeEnv, spec(Expr, Tau), TypeRes) :-
+    env_expr_type(TypeVarEnv, TypeEnv, Expr, TypePoly),
+    TypePoly = forall(Alpha, TypeBody),
+    env_type(TypeVarEnv, Tau),                 
+    type_subst(TypeBody, Alpha, Tau, TypeRes).
 %%%%%%%%%%%%%%
 % ÉVALUATION %
 %%%%%%%%%%%%%%
@@ -108,8 +164,22 @@ env_expr_type(_, _, _, var("X")).
 %   dans l’expression de valeur `Expr`.
 
 % SUPPRIMER LA LIGNE SUIVANTE ET COMPLÉTER
-expr_freevars(_, []).
+expr_freevars(var(X), [X]).
 
+expr_freevars(apply(E1, E2), Vars) :-
+    expr_freevars(E1, Vars1),
+    expr_freevars(E2, Vars2),
+    ord_union(Vars1, Vars2, Vars).
+
+expr_freevars(lambda(X, _, Body), Vars) :-
+    expr_freevars(Body, VarsBody),
+    ord_subtract(VarsBody, [X], Vars).
+
+expr_freevars(poly(_, Body), Vars) :-
+    expr_freevars(Body, Vars).
+
+expr_freevars(spec(Expr, _), Vars) :-
+    expr_freevars(Expr, Vars).
 %%%
 % expr_subst(Expr, Search, Replace, Subst):
 %   `Subst` est l’expression de valeur obtenue à partir de `Expr` en remplaçant chaque
@@ -117,7 +187,33 @@ expr_freevars(_, []).
 %   la capture des variables libres de `Replace`.
 
 % SUPPRIMER LA LIGNE SUIVANTE ET COMPLÉTER
-expr_subst(X, _, _, X).
+expr_subst(var(Search), Search, Replace, Replace) :- !.
+expr_subst(var(X), _, _, var(X)).
+
+expr_subst(apply(E1, E2), Search, Replace, apply(S1, S2)) :-
+    expr_subst(E1, Search, Replace, S1),
+    expr_subst(E2, Search, Replace, S2).
+
+expr_subst(lambda(Search, T, Body), Search, _, lambda(Search, T, Body)) :- !.
+
+expr_subst(lambda(X, T, Body), Search, Replace, lambda(NewX, T, NewBody)) :-
+    expr_freevars(Replace, FreeReplace),
+    member(X, FreeReplace), !,
+    expr_freevars(Body, FreeBody),
+    ord_union(FreeReplace, FreeBody, AllFree),
+    name_fresh_vars(X, NewX, AllFree),
+    expr_subst(Body, X, var(NewX), RenamedBody),
+    expr_subst(RenamedBody, Search, Replace, NewBody).
+
+expr_subst(lambda(X, T, Body), Search, Replace, lambda(X, T, SubstBody)) :-
+    expr_subst(Body, Search, Replace, SubstBody).
+
+expr_subst(poly(A, Body), Search, Replace, poly(A, SubstBody)) :-
+    expr_subst(Body, Search, Replace, SubstBody).
+
+expr_subst(spec(Expr, T), Search, Replace, spec(SubstExpr, T)) :-
+    expr_subst(Expr, Search, Replace, SubstExpr).
+
 
 %%%
 % env_expr_reduce(ValueEnv, Expr, Value)
