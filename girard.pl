@@ -82,9 +82,9 @@ env_type(TypeVarEnv, forall(A, B)) :-
 % SUPPRIMER LA LIGNE SUIVANTE ET COMPLÉTER
 
 % cas ou variables match
-type_subst(var(Search), Search, Replace, Replace) :- !. 
+type_subst(var(Search), Search, Replace, Replace).
 % cas ou var sont diff
-type_subst(var(X), _, _, var(X)).
+type_subst(var(X), Search, _, var(X)) :- X \= Search.
 
 %fleche 
 type_subst(arrow(A, B), Search, Replace, arrow(SubstA, SubstB)) :-
@@ -93,6 +93,7 @@ type_subst(arrow(A, B), Search, Replace, arrow(SubstA, SubstB)) :-
 
 type_subst(forall(Search, Body), Search, _, forall(Search, Body)) :- !.
 
+% Forall (conflict) If X is in free vars of Replace
 type_subst(forall(X, Body), Search, Replace, forall(NewX, NewBody)) :-
     type_freevars(Replace, FreeVarsReplace),
     member(X, FreeVarsReplace), !,
@@ -102,6 +103,7 @@ type_subst(forall(X, Body), Search, Replace, forall(NewX, NewBody)) :-
     type_subst(Body, X, var(NewX), RenamedBody),
     type_subst(RenamedBody, Search, Replace, NewBody).
 
+% Forall (no conflict) this means X is not in free vars of Replace
 type_subst(forall(X, Body), Search, Replace, forall(X, SubstBody)) :-
     type_subst(Body, Search, Replace, SubstBody).
 
@@ -115,6 +117,9 @@ type_equiv(var(X), var(X)).
 type_equiv(arrow(A1, B1), arrow(A2, B2)) :-
     type_equiv(A1, A2),
     type_equiv(B1, B2).
+
+%%%
+% LLM assisted
 
 type_equiv(forall(X, Body1), forall(Y, Body2)) :-
     type_freevars(Body1, Free1),
@@ -196,6 +201,9 @@ expr_subst(apply(E1, E2), Search, Replace, apply(S1, S2)) :-
 
 expr_subst(lambda(Search, T, Body), Search, _, lambda(Search, T, Body)) :- !.
 
+%%%
+% LLM assisted
+
 expr_subst(lambda(X, T, Body), Search, Replace, lambda(NewX, T, NewBody)) :-
     expr_freevars(Replace, FreeReplace),
     member(X, FreeReplace), !,
@@ -220,6 +228,9 @@ expr_subst(spec(Expr, T), Search, Replace, spec(SubstExpr, T)) :-
 %   `Value` est la valeur obtenue en réduisant le plus possible l’expression `Expr`
 %   dans l’environnement `ValueEnv` (un dictionnaire associant chaque variable
 %   d’expression à sa valeur)
+
+%%%
+% LLM assisted
 
 env_expr_reduce(ValueEnv, var(Var), Value) :-
     assoc_key_value(ValueEnv, Var, Value), !.
